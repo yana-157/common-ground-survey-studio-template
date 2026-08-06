@@ -16,19 +16,41 @@ jobs:
   purge-due-surveys:
     runs-on: ubuntu-latest
     steps:
+      - name: Check whether cleanup is configured
+        id: cleanup-configuration
+        env:
+          SUPABASE_CLEANUP_URL: ${{ secrets.SUPABASE_CLEANUP_URL }}
+          SUPABASE_ADMIN_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SUPABASE_CLEANUP_URL" && -z "$SUPABASE_ADMIN_KEY" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Survey cleanup has not been configured for this repository; nothing was run."
+          elif [[ -z "$SUPABASE_CLEANUP_URL" || -z "$SUPABASE_ADMIN_KEY" ]]; then
+            echo "Add both the cleanup project URL and administrator key before running this workflow." >&2
+            exit 1
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check out organization repository
+        if: steps.cleanup-configuration.outputs.configured == 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node.js
+        if: steps.cleanup-configuration.outputs.configured == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install locked dependencies
+        if: steps.cleanup-configuration.outputs.configured == 'true'
         run: npm ci --ignore-scripts
 
       - name: Permanently delete surveys whose recovery window ended
+        if: steps.cleanup-configuration.outputs.configured == 'true'
         env:
           SUPABASE_CLEANUP_URL: ${{ secrets.SUPABASE_CLEANUP_URL }}
           SUPABASE_ADMIN_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
