@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "map": {
+    "name": "Example community Census blocks",
+    "tileset_id": "example_community_blocks",
+    "mapbox_username": "replace_with_organization_mapbox_username",
+    "source_layer": "survey_geography",
+    "min_zoom": 10,
+    "max_zoom": 14,
+    "start_zoom": 13
+  },
+  "census": {
+    "dataset": "decennial_pl",
+    "year": 2020,
+    "geography": "block",
+    "state": "PA",
+    "counties": [
+      "Allegheny"
+    ],
+    "variables": {
+      "population": "P1_001N",
+      "housing_units": "H1_001N"
+    }
+  },
+  "boundary": {
+    "type": "census_place",
+    "name": "Replace with exact Census NAME or NAMELSAD",
+    "clip_features": true
+  },
+  "output": {
+    "directory": "generated/mapbox"
+  }
+}

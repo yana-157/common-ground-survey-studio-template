@@ -1,0 +1,101 @@
+name: Build optional Mapbox tileset
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Path to a reviewed, non-secret tileset JSON config
+        required: true
+        default: scripts/tileset-config.example.json
+        type: string
+      upload_to_mapbox:
+        description: Upload the built MBTiles file to the organization's Mapbox account
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mapbox-tileset-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Census geography and optional Mapbox upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CENSUS_API_KEY: ${{ secrets.CENSUS_API_KEY }}
+      MAPBOX_SECRET_TOKEN: ${{ secrets.MAPBOX_SECRET_TOKEN }}
+      TILESET_CONFIG_PATH: ${{ inputs.config_path }}
+      OUTPUT_DIRECTORY: generated/mapbox
+      UPLOAD_TO_MAPBOX: ${{ inputs.upload_to_mapbox }}
+
+    steps:
+      - name: Check out organization repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          use-public-rspm: true
+
+      - name: Install geospatial system libraries and Tippecanoe
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes build-essential libgdal-dev libgeos-dev libproj-dev libsqlite3-dev libudunits2-dev zlib1g-dev
+          git init /tmp/tippecanoe
+          git -C /tmp/tippecanoe remote add origin https://github.com/felt/tippecanoe.git
+          git -C /tmp/tippecanoe fetch --depth 1 origin 68ab8dcc229f95b8b25877697d5e8d66783af503
+          git -C /tmp/tippecanoe checkout --detach FETCH_HEAD
+          test "$(git -C /tmp/tippecanoe rev-parse HEAD)" = "68ab8dcc229f95b8b25877697d5e8d66783af503"
+          make -C /tmp/tippecanoe -j2
+          sudo make -C /tmp/tippecanoe install
+
+      - name: Install R dependencies
+        uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          packages: |
+            any::jsonlite@2.0.0
+            any::sf@1.1-2
+            any::tidycensus@1.8.1
+            any::tigris@2.2.1
+            any::mapboxapi@0.6.3
+
+      - name: Validate requested inputs and secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$TILESET_CONFIG_PATH" ]]; then
+            echo "Config file does not exist: $TILESET_CONFIG_PATH" >&2
+            exit 1
+          fi
+          if [[ -z "$CENSUS_API_KEY" ]]; then
+            echo "Add CENSUS_API_KEY as a repository Actions secret before running this workflow." >&2
+            exit 1
+          fi
+          if [[ "$UPLOAD_TO_MAPBOX" == "true" && -z "$MAPBOX_SECRET_TOKEN" ]]; then
+            echo "Uploading requires MAPBOX_SECRET_TOKEN as a repository Actions secret." >&2
+            exit 1
+          fi
+
+      - name: Build survey geography
+        shell: bash
+        run: |
+          set -euo pipefail
+          Rscript scripts/build-mapbox-tileset.R \
+            --config "$TILESET_CONFIG_PATH" \
+            --upload "$UPLOAD_TO_MAPBOX" \
+            --output-dir "$OUTPUT_DIRECTORY"
+
+      - name: Save generated files as a workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mapbox-tileset-${{ github.run_number }}
+          path: generated/mapbox/
+          if-no-files-found: error
+          retention-days: 14
