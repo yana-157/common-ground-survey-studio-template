@@ -8,6 +8,11 @@
 --   * Invitation and join-code secrets are returned once and stored only as
 --     one-way hashes (SHA-256 for random tokens, bcrypt for human codes).
 --   * All organization access is checked in the database with RLS.
+--
+-- Run this entire file once in a new Supabase project's SQL Editor. The setup
+-- is wrapped in one transaction: if any statement fails, Supabase rolls the
+-- whole attempt back. A successful run ends with a clearly labeled completion
+-- row.
 
 begin;
 
@@ -1235,7 +1240,6 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_auth_user();
@@ -4803,7 +4807,8 @@ on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
-alter table storage.objects enable row level security;
+-- Supabase owns storage.objects and already enables RLS on it. Organization
+-- administrators may add policies, but must not alter the managed table.
 
 create policy static_map_objects_read
   on storage.objects for select to anon, authenticated
@@ -4893,9 +4898,8 @@ revoke all on all functions in schema public from public, anon, authenticated;
 grant usage on schema private to service_role;
 grant select, insert, update, delete on all tables in schema private to service_role;
 
-grant usage on schema storage to anon, authenticated;
-grant select on storage.objects to anon, authenticated;
-grant insert, update, delete on storage.objects to authenticated;
+-- Supabase supplies the base Storage API privileges on its managed schema.
+-- The object policies above provide Common Ground's row-level access rules.
 
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
@@ -4973,3 +4977,8 @@ grant execute on function public.list_published_survey_versions_for_responses(uu
 grant execute on function public.get_published_response_schema(uuid) to authenticated;
 
 commit;
+
+select
+  'Common Ground database setup complete' as status,
+  true as ok,
+  '0001_initial' as schema_version;
